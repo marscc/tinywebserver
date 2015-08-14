@@ -1,5 +1,4 @@
 #include "threadpool.h"
-using namespace std;
 
 static void *threadpool_worker(void *arg);
 int threadpool_free(threadpool_t *pool);
