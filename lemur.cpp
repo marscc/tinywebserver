@@ -6,72 +6,28 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include <malloc.h>
+#include "threadpool.h"
+#include "http_request.h"
 
 #include <iostream>
 
 using namespace std;
 
-#define STATUS_READ_REQUEST_HEADER 0
-#define STATUS_SEND_RESPONSE_HEADER 1
-#define STATUS_SEND_RESPONSE 2
 #define MAX_PROCESS 100
-#define MAXEVENTS 100
+#define MAXEVENTS 1024
 #define SERV_PORT 3000
-#define BUF_SIZE 4024
 #define MAXCONN 128
 
-struct process{
-	int sock;
-	int status;
-	int response_code;
-	int fd;
-	int read_pos;
-	int write_pos;
-	int total_length;
-	char buf[BUF_SIZE];                                    
-};
-static process processes[MAX_PROCESS];
-
-void init_processes()
-{
-	for(int i = 0; i < MAX_PROCESS; i++) processes[i].sock = -1;
-}
-
-void read_request(process* process)
-{}
-
-process* find_process_by_sock_slow(int sock)
-{
-	for(int i = 0; i < MAX_PROCESS; i++)
-		if(processes[i].sock == sock) return &processes[i];
-	return 0;
-}
-
-process* find_process_by_sock(int sock)
-{
-	if(sock<MAX_PROCESS && sock >=0 && processes[sock].sock == sock) return &processes[sock];
-	else return find_process_by_sock_slow(sock); //慢查找 O(n)时间复杂度 能否降低？？
-}
-
-process* find_empty_process_for_sock(int sock) {
-  if (sock < MAX_PROCESS && sock >= 0 && processes[sock].sock == -1) {
-    return &processes[sock];
-  } else {
-    return find_process_by_sock_slow(-1);
-  }
-}
-
-void reset_process(process* process) {
-  process->read_pos = 0;
-  process->write_pos = 0;
-}
+struct epoll_event event;
+int epollfd;
+struct epoll_event *events;
 
 int main(int argc, char *argv[])
 {
-	int listenfd, connectfd, epollfd;
+	int listenfd, connectfd;
 	int flags, s;
 	
-	init_processes();
 	struct sockaddr_in servaddr;
 	
 	bzero(&servaddr, sizeof(servaddr));
@@ -90,32 +46,38 @@ int main(int argc, char *argv[])
 	
 	listen(listenfd, MAXCONN);
 	
-	struct epoll_event event;
-	struct epoll_event *events;
-	event.data.fd = listenfd;
+	http_request_t *ptr =  (http_request_t *)malloc(sizeof(http_request_t)); 
+	init_request_t(ptr, listenfd);
+	event.data.ptr = (void *)ptr; //用了event.data.ptr就不要再用event.data.fd
 	event.events = EPOLLIN | EPOLLET;
 	
 	epollfd = epoll_create1(0);//创建epoll实例
 	
 	epoll_ctl(epollfd, EPOLL_CTL_ADD, listenfd, &event); //注册事件
 	
-	events = (epoll_event *)calloc(MAXEVENTS, sizeof(epoll_event));//calloc分配内存并初始化
+	events = (epoll_event *)calloc(MAXEVENTS, sizeof(epoll_event));//calloc分配内存并初始化events数组
 	
-	//创建线程池对象，并初始化
-	//threadpool_t *pt = threadpool_init(4);
+	//创建线程池对象，并初始化 pt指向堆中分配的threadpool_t对象
+	threadpool_t *pt = threadpool_init(4);
 	
+	cout << "listenfd: " << listenfd << endl;
 	while(1)
 	{
 		int n = epoll_wait(epollfd, events, MAXEVENTS, -1);
+		//cout << "n: " << n << endl;
+		int sock;
 		for(int i = 0; i < n; i++)
 		{
+			http_request_t *r = (http_request_t *)events[i].data.ptr;
+			sock = r->sock;
+			//cout << "r->sock: " << r->sock << endl;
 			if((events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP))
 			{
 				cerr << "epoll error" << endl;
-				close(events[i].data.fd);
+				close(sock);
 				continue;
 			}
-			else if(events[i].data.fd == listenfd) //新连接来到
+			else if(sock == listenfd) //新连接来到
 			{
 				while(1) //因为监听套接字也是边缘触发 故要读完所有已完成的连接，必须采用while
 				{
@@ -143,43 +105,36 @@ int main(int argc, char *argv[])
 					flags |= O_NONBLOCK;
 					flags = fcntl(connfd, F_SETFL, flags);
 					
-					// 需不需要设置监视sock的读取状态函数setsockopt ( infd, SOL_TCP, TCP_CORK, &on, sizeof ( on ) );
+					//需不需要设置监视sock的读取状态函数setsockopt ( infd, SOL_TCP, TCP_CORK, &on, sizeof ( on ) );	
 					
-					event.data.fd = connfd;
+					//给已连接的请求头分配空间
+					http_request_t *request = (http_request_t *)malloc(sizeof(http_request_t));
+					if(request == NULL) cerr << "request alloc error" << endl;
+					
+					init_request_t(request, connfd);					
+					
+					//将要添加事件的时候关联自定义数据 event.data.fd不要管
+					event.data.ptr = (void *)request;
 					event.events = EPOLLIN | EPOLLET;
-					epoll_ctl(epollfd, EPOLL_CTL_ADD, connfd, &event);	
+					epoll_ctl(epollfd, EPOLL_CTL_ADD, connfd, &event);
 					
-					process* process = find_empty_process_for_sock(connfd);	
-					reset_process(process);
-					process->sock = connfd;
-					process->fd = -1;
-					process->status = STATUS_READ_REQUEST_HEADER;	
+					cout << "accept..." << endl;		
 				}
-				continue;
 			}
-			else //普通的已连接描述符变为可读, 则将该描述符添加到任务队列中
+			else if(events[i].events & EPOLLIN) 
 			{
-				//threadpool_add(tp, do_request, events[i].data.fd);
-				process* process = find_process_by_sock(events[i].data.fd);
-				if(process != NULL)
-				{
-					switch(process->status)
-					{
-						case STATUS_READ_REQUEST_HEADER:
-							read_request(process);
-							break;
-						case STATUS_SEND_RESPONSE_HEADER:
-							//send_response_header(process);
-							break;
-						case STATUS_SEND_RESPONSE:
-							//send_response(process);
-						default: break;
-					}
-				}
+				printf("fd: %d\n", (*((http_request_t *)events[i].data.ptr)).sock);
+				threadpool_add(pt, do_request, events[i].data.ptr);
 			}
+			//else if(events[i].events & EPOLLOUT)
+			//{
+			//	printf("fd: %d\n", (*((http_request_t *)events[i].data.ptr)).sock);
+			//	threadpool_add(pt, do_response, events[i].data.ptr);
+			//} 
 		}
-		//threadpool_destroy(tp);
 	}
+	threadpool_destroy(pt);
+	free(ptr);
 	free(events);
 	close(listenfd);
 	return 0;	
