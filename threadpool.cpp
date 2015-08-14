@@ -1,6 +1,4 @@
-#include "/root/UNX/threadpool/threadpool.h"
-#include <iostream>
-
+#include "threadpool.h"
 using namespace std;
 
 static void *threadpool_worker(void *arg);
@@ -58,22 +56,17 @@ static void *threadpool_worker(void *arg) //为什么要声明为static
 	while(1)
 	{
 		pthread_mutex_lock(&pool->lock); //加锁
-		cout << "tid " << tid << " 解锁成功" << endl;
 		while(pool->queue_size == 0 && !pool->shutdown) //任务队列为空且没有退出线程的命令
 			pthread_cond_wait(&(pool->cond), &(pool->lock)); //解锁-wait-收到信号-加锁-返回
 		if(pool->shutdown)
 		{
 			pthread_mutex_unlock(&(pool->lock)); 
-			cout << "Thread " << pthread_self() << " will exit" << endl;
 			pthread_exit(NULL);
 		}
-		cout << "Tid " << tid << " is running..." << endl;
 		task = pool->head->next;
 		if(task == NULL) continue;
 		pool->head->next = task->next;
 		pool->queue_size--;
-		
-		cout << "pool->size: " << pool->queue_size << endl;
 		
 		task->func(task->arg);//如果放在unlock之前，如果这四个线程都在执行函数，如果有新连接来到，执行add函数，分配一个任务后，将阻塞在add的加锁那里，因为此时锁还未释放
 		pthread_mutex_unlock(&(pool->lock));
@@ -87,7 +80,6 @@ static void *threadpool_worker(void *arg) //为什么要声明为static
 int threadpool_destroy(threadpool_t* pool) 
 {
 	if(pool->shutdown) return -1; //线程池所有线程都已经退出
-	cout << "Now I will end all threads!" <<endl;
 	
 	pool->shutdown = true;
 	pthread_cond_broadcast(&(pool->cond)); //阻塞在wait那的线程会收到该消息 然后执行while循环条件不满足，pool->shutdown已经置一，故该线会退出
