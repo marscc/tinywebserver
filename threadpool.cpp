@@ -47,7 +47,7 @@ int threadpool_add(threadpool_t *pool, void (*func)(void *), void *arg)
 	return 0;
 }
 //消费者处理线程
-static void *threadpool_worker(void *arg) //为什么要声明为static
+static void *threadpool_worker(void *arg)
 {
 	threadpool_t *pool = (threadpool_t *)arg;
 	threadpool_task *task;
