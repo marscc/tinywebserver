@@ -23,7 +23,7 @@ int main()
 	sprintf(content, "%sThe answer is: %d + %d = %d\r\n<p>", content, n1, n2, n1 + n2);
 	sprintf(content, "%sThanks for visiting!\r\n>", content);
 	
-	printf("HTTP/1.1 200 OK\r\nServer: lebur/1.0\r\n");
+	printf("HTTP/1.1 200 OK\r\nServer: lemur/1.0\r\n");
 	printf("Content-length: %d\r\n", (int)strlen(content));
 	printf("Content-type: text/html\r\n\r\n");
 	printf("%s", content);
