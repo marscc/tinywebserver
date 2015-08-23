@@ -5,9 +5,12 @@
 - 支持GET/POST/HEAD请求
 - 支持CGI功能
 
----
-
-###使用说明
-
-####安装
+####编译和安装
+环境：ubuntu10.04
+'''
+g++ -o lemur.cpp -c lemur.o
+g++ -o http_request.cpp -c http_request.o
+g++ -o threadpool.cpp -c threadpool.o
+g++ -o lemur lemur.o http_request.o threadpool.o -lpthread
+'''
 
