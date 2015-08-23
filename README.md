@@ -6,11 +6,12 @@
 - 支持CGI功能
 
 ####编译和安装
+
 环境：ubuntu10.04
-'''
+```
 g++ -o lemur.cpp -c lemur.o
 g++ -o http_request.cpp -c http_request.o
 g++ -o threadpool.cpp -c threadpool.o
 g++ -o lemur lemur.o http_request.o threadpool.o -lpthread
-'''
+```
 
