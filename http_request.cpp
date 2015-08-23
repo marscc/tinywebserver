@@ -131,6 +131,55 @@ void do_request(void *arg) //do_request完成后释不释放http_request_t结构
 		struct stat filestat;
 		char fullname[256];
 		const char *prefix = doc_root;
+		
+		if(strstr(path, "cgi-bin") != NULL) //动态页面处理
+		{
+			cout << "cgi-bin" << endl;
+			const char *q_loc = strchr(buf + 4, '?');
+			char cgi_path[255];
+			char querystring[255];
+			if(q_loc != NULL)
+			{
+				int len = q_loc - buf - 4;
+				strncpy(cgi_path, buf + 4, len);
+				cgi_path[len] = '\0';	
+				
+			}
+			prefix = cgi_root;
+			strncpy(fullname, prefix, strlen(prefix) + 1);
+			strncpy(fullname + strlen(prefix), cgi_path, strlen(cgi_path) + 1);
+			cout << "cgi_fullname: " << fullname << endl;
+			
+			strncpy(querystring, q_loc + 1, space2_loc - q_loc);
+			querystring[space2_loc - q_loc] = '\0';
+			cout << "querystring: " << querystring << endl; 
+			struct stat sbuf;
+			int s = lstat(fullname, &sbuf);
+			if(s == -1)
+			{
+				cout << "return value: -1" << endl;
+				return;
+			}
+			if(!(S_ISREG(sbuf.st_mode)) || !(S_IXUSR & sbuf.st_mode))
+			{
+				handle_response_code_400(rt);
+				return;
+			}
+			rt->response_code = 200;
+			//write_to_header(rt, header_200_start); 在cgi程序中返回
+			char *emptylist[] = {NULL};
+			int status;
+			pid_t pid;
+			if((pid = fork()) == 0)
+			{
+				setenv("QUERY_STRING", querystring, 1);
+				dup2(rt->sock, STDOUT_FILENO);
+				execve(fullname, emptylist, environ);
+			}
+			if(wait(NULL) != pid) cerr << "wait error" << endl;
+			return;
+		}
+		
 		strncpy(fullname, prefix, strlen(prefix) + 1);
 		strncpy(fullname + strlen(prefix), path, strlen(path) + 1);
 		
