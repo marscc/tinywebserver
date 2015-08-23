@@ -7,7 +7,7 @@
 
 ####编译
 
-环境：ubuntu10.04
+环境：ubuntu 10.04，gcc version 4.4.3
 ```
 g++ -o lemur.cpp -c lemur.o
 g++ -o http_request.cpp -c http_request.o
